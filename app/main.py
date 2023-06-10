@@ -1,10 +1,21 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException,Form
 from pydantic import BaseModel
 import mysql.connector
 from mysql.connector import errorcode
 from minio import Minio
+from typing_extensions import Annotated
+import uuid
 import io
 
+
+
+
+minio_client = Minio(
+    endpoint='127.0.0.1:9000',
+    access_key='5gUjDX35x0X2TMBT',
+    secret_key='nUwdi0YYljlGOh3jzyb8FhYA2Ri7Vsvl',
+    secure=False
+)
 
 try:
     cnx = mysql.connector.connect(user='root',password="",database='alpr')
@@ -113,7 +124,7 @@ def update_user(user_id: str, user_update: User):
 
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="User not found")
-        
+
         return {"message": "User updated successfully"}
     except mysql.connector.Error as err:
         return {"error": str(err)}
@@ -156,7 +167,7 @@ class INE(BaseModel):
     seccion: str
     localidad: str
     año_registro: int
-    
+
 @app.post("/ine")
 def create_ine(ine: INE):
     try:
@@ -197,9 +208,9 @@ def get_ine(user_id: str):
             raise HTTPException(status_code=404, detail="INE data not found")
 
         ine_data = INE(id_persona=result[0], nombre=result[1], curp=result[2], fecha_nacimiento=result[3],
-                       vigencia=result[4], sexo=result[5], foto=result[6], domicilio=result[7],
-                       clave_elector=result[8], seccion=result[9], localidad=result[10], año_registro=result[11])
-        
+                    vigencia=result[4], sexo=result[5], foto=result[6], domicilio=result[7],
+                    clave_elector=result[8], seccion=result[9], localidad=result[10], año_registro=result[11])
+
         return ine_data
     except mysql.connector.Error as err:
         return {"error": str(err)}
@@ -470,4 +481,199 @@ def delete_persona(curp: str):
         return {"message": "Persona deleted successfully"}
     except mysql.connector.Error as err:
         return {"error": str(err)}
+
+
+
+mysql_config = {
+    'user': 'root',
+    'password': '',
+    'database': 'alpr',
+    'host': 'localhost',
+    'port': '3306',
+}
+
+
+@app.post("/ine/", status_code=201)
+async def guardar_ine(file: Annotated[bytes, File()],):
+    image_uuid = str(uuid.uuid4())
+    lenght=len(file)
+    stream=io.BytesIO(file)
+    print(lenght)
+    minio_client.put_object(
+        bucket_name='ine',
+        object_name=f"{image_uuid}.jpg",
+        data=stream,
+        length=lenght,
+        content_type='image/jpg'
+    )
+
+
+
+    #statement = "INSERT INTO guardar_ine (uuid, curp_rf) VALUES (%s, %s)"
+    #data = (image_uuid, 'curp_rf_value')
+
+
+
+@app.get("/ine/{image_uuid}")
+async def obtener_ine(image_uuid: str):
+    try:
+        
+        exists = minio_client.bucket_exists(bucket_name='ine')
+        if not exists:
+            return {"error": "El bucket 'ine' no existe"}
+
+        
+        object_exists = minio_client.object_exists(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+        if not object_exists:
+            return {"error": "La imagen no existe"}
+
+        
+        object_info = minio_client.stat_object(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+        size = object_info.size
+        content_type = object_info.content_type
+
+        return {
+            "image_uuid": image_uuid,
+            "size": size,
+            "content_type": content_type
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.put("/ine/{image_uuid}", status_code=200)
+async def actualizar_ine(image_uuid: str, file: Annotated[bytes, File()]):
+    try:
+
+        exists = minio_client.bucket_exists(bucket_name='ine')
+        if not exists:
+            return {"error": "El bucket 'ine' no existe"}
+
+
+        object_exists = minio_client.object_exists(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+        if not object_exists:
+            return {"error": "La imagen no existe"}
+
+        minio_client.remove_object(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+        
+
+        lenght = len(file)
+        stream = io.BytesIO(file)
+        minio_client.put_object(
+            bucket_name='ine',
+            object_name=f"{image_uuid}.jpg",
+            data=stream,
+            length=lenght,
+            content_type='image/jpg'
+        )
+        
+        return {"message": "Imagen actualizada correctamente"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/ine/{image_uuid}", status_code=204)
+async def eliminar_ine(image_uuid: str):
+    try:
+        exists = minio_client.bucket_exists(bucket_name='ine')
+        if not exists:
+            return {"error": "El bucket 'ine' no existe"}
+
+        object_exists = minio_client.object_exists(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+        if not object_exists:
+            return {"error": "La imagen no existe"}
+
+
+        minio_client.remove_object(bucket_name='ine', object_name=f"{image_uuid}.jpg")
+
+        return None
+    except Exception as e:
+        return {"error": str(e)}
+
+
+vin_mysql_config = {
+    'user': 'root',
+    'password': '',
+    'database': 'guardar_vin',
+    'host': 'localhost',
+    'port': '3306',
+}
+
+@app.post("/vin/", status_code=201)
+async def guardar_vin(file: Annotated[bytes, File()],):
+    image_uuid = str(uuid.uuid4())
+    lenght=len(file)
+    stream=io.BytesIO(file)
+    print(lenght)
+    minio_client.put_object(
+        bucket_name='vin',
+        object_name=f"{image_uuid}.jpg",
+        data=stream,
+        length=lenght,
+        content_type='image/jpg'
+    )
+
+
+    #statement = "INSERT INTO guardar_vin (uuid, vin_nf) VALUES (%s, %s)"
+    #data = (image_uuid, count + 1)
+
+
+
+@app.get("/vin/{image_uuid}", status_code=200)
+async def obtener_vin(image_uuid: str):
+    try:
+        response = minio_client.get_object(
+            bucket_name='vin',
+            object_name=f"{image_uuid}.jpg"
+        )
+        image_data = response.data
+
+        return {
+            "image_uuid": image_uuid,
+            "image_data": image_data
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/vin/{image_uuid}", status_code=200)
+async def eliminar_vin(image_uuid: str):
+    try:
+        exists = minio_client.bucket_exists(bucket_name='vin')
+        if not exists:
+            return {"error": "El bucket 'vin' no existe"}
+
+        
+        object_exists = minio_client.object_exists(bucket_name='vin', object_name=f"{image_uuid}.jpg")
+        if not object_exists:
+            return {"error": "La imagen no existe"}
+
+        
+        minio_client.remove_object(bucket_name='vin', object_name=f"{image_uuid}.jpg")
+        
+        return {"message": "Imagen eliminada correctamente"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.put("/vin/{image_uuid}", status_code=200)
+async def actualizar_vin(image_uuid: str, file: Annotated[bytes, File()]):
+    try:
+        exists = minio_client.bucket_exists(bucket_name='vin')
+        if not exists:
+            return {"error": "El bucket 'vin' no existe"}
+
+        object_exists = minio_client.object_exists(bucket_name='vin', object_name=f"{image_uuid}.jpg")
+        if not object_exists:
+            return {"error": "La imagen no existe"}
+
+        lenght = len(file)
+        stream = io.BytesIO(file)
+        minio_client.put_object(
+            bucket_name='vin',
+            object_name=f"{image_uuid}.jpg",
+            data=stream,
+            length=lenght,
+            content_type='image/jpg'
+        )
+        
+        return {"message": "Imagen actualizada correctamente"}
+    except Exception as e:
+        return {"error": str(e)}
 
